@@ -1,0 +1,124 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="服用管理"><link rel="manifest" href="manifest.json"><link rel="apple-touch-icon" href="icon.png"><title>服用管理</title>
+<style>:root{--bg:#f6f4f1;--c:#fff;--t:#222;--m:#666;--a:#7a3b69;--w:#fff3cd;--r:#fde2e2;color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#1b1a1c;--c:#2a282b;--t:#eee;--m:#aaa;--a:#c77fb4;--w:#4a3f12;--r:#4a1f1f}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font:16px/1.5 -apple-system,sans-serif;padding:env(safe-area-inset-top) 12px calc(70px + env(safe-area-inset-bottom))}
+.c{background:var(--c);border-radius:14px;padding:14px;margin:10px 0}.big{font-size:30px;font-weight:700}.w{background:var(--w)}.r{background:var(--r)}.m{color:var(--m);font-size:13px}
+button,input,textarea{font:inherit;padding:10px;border-radius:10px;border:1px solid #8886;background:var(--c);color:var(--t)}button.p{background:var(--a);color:#fff;border:0}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}.row>*{flex:1}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--c);padding-bottom:env(safe-area-inset-bottom)}nav button{flex:1;border:0;border-radius:0;padding:14px 0}
+table{width:100%;border-collapse:collapse;text-align:center}td{border:1px solid #8883;height:50px;font-size:11px;vertical-align:top}</style></head>
+<body><div id=v></div><nav><button onclick="go('t')">今日</button><button onclick="go('r')">記録</button><button onclick="go('c')">カレンダー</button><button onclick="go('s')">設定</button></nav>
+<script>
+function showErr(m){let b=document.getElementById('err');if(!b){b=document.createElement('div');b.id='err';b.style.cssText='background:#fde2e2;color:#400;padding:10px;margin:8px 0;border-radius:10px;font-size:13px;white-space:pre-wrap';document.body.prepend(b)}b.textContent+=m+'\n'}
+window.addEventListener('error',e=>showErr('エラー：'+e.message+(e.lineno?'（'+e.lineno+'行目）':'')));
+window.addEventListener('unhandledrejection',e=>showErr('エラー：'+(e.reason&&e.reason.message||e.reason)));
+</script><script>
+(function(g){
+// 未確定ルール。医師・薬剤師への確認後に、ここだけを 'A'（3日目が25日目以降なら成立）か 'B'（3日すべてが25日目以降）に変更する。画面からは変更できない。
+const RULES={boundary:'hold'};
+const P=s=>{const a=s.split('-').map(Number);return Date.UTC(a[0],a[1]-1,a[2])/864e5};
+const F=n=>new Date(n*864e5).toISOString().slice(0,10);
+const add=(s,n)=>F(P(s)+n),diff=(a,b)=>P(b)-P(a);
+function plan(S,ps,lim){
+ const yes=d=>(S.days[d]||{}).b==='yes';
+ const ok=d=>yes(d)&&yes(add(d,1))&&yes(add(d,2))&&(!lim||add(d,2)<lim);
+ let bleed=null,hold=null;
+ for(let i=22;i<=120;i++){const d=add(ps,i);if(!ok(d))continue;
+  if(i<24&&RULES.boundary==='B')continue;
+  if(i<24&&RULES.boundary==='hold'){hold=d;break}
+  bleed=d;break}
+ const c=[];
+ if(bleed)c.push({rule:'出血',start:add(bleed,3),basis:'出血記録 '+bleed+'〜'+add(bleed,2)+'の3日連続（服用'+(diff(ps,bleed)+1)+'〜'+(diff(ps,bleed)+3)+'日目）の翌日から4日間'});
+ c.push({rule:'120日',start:add(ps,120),basis:'服用開始日 '+ps+' から120日（'+add(ps,119)+'が120日目）の翌日から4日間'});
+ c.sort((a,b)=>a.start<b.start?-1:a.start>b.start?1:0);
+ c.forEach(x=>{x.end=add(x.start,3);x.resume=add(x.start,4)});
+ return{ps,main:c[0],all:c,hold};
+}
+function status(S,t){
+ const pss=S.periods.filter(x=>x<=t).sort(),ps=pss[pss.length-1]||null;
+ const pz=S.pauses.filter(x=>x<=t).sort(),lp=pz[pz.length-1]||null;
+ let ph='unknown',n=0,pp=ps,lim=null;
+ if(lp&&(!ps||lp>=ps)){lim=lp;pp=pss.filter(x=>x<=lp).pop()||null;const k=diff(lp,t);ph=k<=3?'pause':k===4?'resumeDay':'resumeMissing';n=k+1}
+ else if(ps){ph='taking';n=diff(ps,t)+1}
+ const pl=pp?plan(S,pp,lim):null;let unrec=0;const missed=[];
+ if(pp){const end=lim?add(lim,-1):t;for(let d=pp;d<=end;d=add(d,1)){const e=S.days[d]||{};if(e.t==='missed')missed.push(d);else if(!e.t&&d<t)unrec++}}
+ return{ph,n,ps,pp,lp,pl,unrec,missed,resume:lp?add(lp,4):null,gap:!!(lp&&pl&&pl.main.start!==lp)};
+}
+const valid=o=>!!(o&&o.v===1&&Array.isArray(o.periods)&&Array.isArray(o.pauses)&&o.days&&typeof o.days==='object');
+const Y={RULES,add,diff,plan,status,valid};
+if(typeof module!=='undefined')module.exports=Y;else g.Y=Y;
+})(this);
+
+</script><script>
+const K='yf_v1',$=s=>document.querySelector(s);let S,tab='t',sel=null,vm=null;
+const E=()=>({v:1,periods:[],pauses:[],days:{},plan:null,notes:''});
+const today=()=>new Date(Date.now()+324e5).toISOString().slice(0,10),hm=()=>new Date(Date.now()+324e5).toISOString().slice(11,16);
+const md=d=>(+d.slice(5,7))+'月'+(+d.slice(8))+'日',wd=d=>'日月火水木金土'[new Date(d).getUTCDay()];
+let memOnly=false;
+function load(){try{localStorage.setItem('yf_t','1');localStorage.removeItem('yf_t')}catch(e){memOnly=true;showErr('この環境では記録を保存できません。このまま使うと、画面を閉じた時点で記録が消えます。')}
+ let raw=null;try{raw=localStorage.getItem(K)}catch(e){}
+ try{S=raw?JSON.parse(raw):E();if(!Y.valid(S))throw 0}catch(e){S=E();try{localStorage.setItem('yf_unreadable',raw)}catch(_){}showErr('保存済みの記録を読み込めませんでした。記録は削除せず別の場所に退避しました。この状態で操作しても、退避した記録は消えません。')}}
+function ask(m,f){const d=document.createElement('div');d.style.cssText='position:fixed;left:12px;right:12px;bottom:90px;background:var(--c);border:2px solid var(--a);border-radius:14px;padding:14px;z-index:9';d.innerHTML='<p></p><div class=row><button>やめる</button><button class=p>実行する</button></div>';d.querySelector('p').textContent=m;const b=d.querySelectorAll('button');b[0].onclick=()=>d.remove();b[1].onclick=()=>{d.remove();f()};document.body.append(d)}
+function save(){if(memOnly)return;try{localStorage.setItem(K,JSON.stringify(S))}catch(e){memOnly=true;showErr('保存できませんでした。この記録は保存されていません。')}}
+const upd=(a,x,on)=>{const i=a.indexOf(x);if(on&&i<0)a.push(x);if(!on&&i>=0)a.splice(i,1);a.sort()};
+const ent=d=>S.days[d]=S.days[d]||{};
+function go(t){tab=t;render();scrollTo(0,0)}
+function drink(ok){const t=today(),s=Y.status(S,t);if(s.ph==='pause'&&!ok){ask('休薬予定の期間中です。服用として記録しますか？',()=>drink(1));return}if(s.ph==='resumeDay'||s.ph==='resumeMissing')upd(S.periods,t,1);const e=ent(t);e.t='taken';e.at=hm();save();render()}
+function bleed(){ent(today()).b='yes';save();render()}
+function pauseNow(){ask('今日を休薬1日目として記録しますか？',()=>{upd(S.pauses,today(),1);save();render()})}
+function resumeNow(){ask('今日を新しい服用1日目として記録しますか？',()=>{upd(S.periods,today(),1);save();render()})}
+function ack(){const p=Y.status(S,today()).pl;if(p)S.plan={ps:p.ps,start:p.main.start};save();render()}
+function vT(s){const t=today(),e=S.days[t]||{},pl=s.pl,al=[];
+ const L={taking:['服用期間中','今日は服用'+s.n+'日目'],pause:['休薬期間中','今日は休薬'+s.n+'日目／4日間'],resumeDay:['服用再開予定日','今日は服用再開予定日です'],resumeMissing:['再開の記録がありません','再開の記録がありません'],unknown:['開始日が未登録','服用日数は確定できません']}[s.ph];
+ const stat=s.ph==='pause'?(e.t==='taken'?'服用済み（休薬期間中の記録・要確認）':'休薬を記録済み'):e.t==='taken'?'服用済み'+(e.at?'（'+e.at+'）':''):e.t==='missed'?'飲み忘れ':'未記録';
+ if(s.ph==='unknown')al.push(['w','設定で服用開始日または休薬開始日を登録すると、日数と予定を計算します。開始日が不明な場合は判断できないため、医師・薬剤師に確認してください。']);
+ if(pl&&s.ph==='taking'){const m=pl.main,tm=Y.add(t,1);
+  if(m.start===tm)al.push(['r',(s.n===120?'今日は服用120日目です。':'')+'明日'+md(tm)+'から4日間の休薬予定です（記録に基づく予定）']);
+  else if(m.start===t)al.push(['r','今日は休薬開始予定日です（記録に基づく予定）']);
+  else if(m.start<t)al.push(['r',md(m.start)+'が休薬開始予定日でした。実際の服用・休薬状況を記録してください']);}
+ if((s.ph==='pause'||s.ph==='resumeDay'||s.ph==='resumeMissing')&&s.resume)al.push([s.ph==='pause'?'':'w','服用再開予定日：'+md(s.resume)+(s.ph==='resumeDay'?'。再開した日に「飲んだ」を押すと、その日が服用1日目になります':s.ph==='resumeMissing'?'。再開の記録がありません':'')]);
+ if(s.gap)al.push(['w','当初の予定（'+md(pl.main.start)+'開始）と、実際の休薬開始日（'+md(s.lp)+'）が違います。確認が必要です。休薬は4日間を超えないことと添付文書に記載があります。医師・薬剤師にご確認ください。']);
+ if(pl&&pl.hold)al.push(['w','出血による休薬の判定を保留しています。出血記録'+md(pl.hold)+'〜'+md(Y.add(pl.hold,2))+'が服用24日目と25日目をまたぎ、「25日目以降に3日間連続」の読み方が添付文書から確定できないためです。医師・薬剤師に確認してください。下の予定は出血判定を含まない参考です。']);
+ if(s.unrec)al.push(['w','未記録の日があります（'+s.unrec+'日）。実際の服用状況を確認してください。']);
+ if(s.missed.length)al.push(['w','飲み忘れの記録があります（'+s.missed.map(md).join('、')+'）。日数と日付はそのまま表示しています。飲み忘れ後の休薬判定には確認が必要です。医師・薬剤師にご確認ください。']);
+ if(pl&&S.plan&&S.plan.ps===pl.ps&&S.plan.start!==pl.main.start)al.push(['r','休薬予定が変わりました（以前：'+md(S.plan.start)+'開始 → 今：'+md(pl.main.start)+'開始）。<button onclick=ack()>確認した</button>']);
+ let h='<div class=c><div class=m>'+md(t)+'（'+wd(t)+'）　'+L[0]+'</div><div class=big>'+L[1]+'</div><div>本日：'+stat+'</div></div>'+al.map(a=>'<div class="c '+a[0]+'">'+a[1]+'</div>').join('');
+ h+='<div class=row><button class=p onclick=drink()>飲んだ</button><button onclick=bleed()>出血を記録</button></div>';
+ if(s.ph==='taking')h+='<div class=row><button onclick=pauseNow()>休薬を記録（今日が休薬1日目）</button></div>';
+ if(s.ph==='resumeDay'||s.ph==='resumeMissing')h+='<div class=row><button onclick=resumeNow()>服用を再開した（今日が1日目）</button></div>';
+ if(s.ph==='unknown')h+='<div class=row><button class=p onclick="go(\'s\')">開始日を登録する</button></div>';
+ if(pl)h+='<details class=c><summary>休薬予定と計算の根拠</summary><p class=m>記録に基づく予定です。実際に休薬した記録ではありません。</p>服用開始日：'+pl.ps+'<br>'+pl.all.map((x,i)=>(i?'':'【主な予定】')+x.rule+'：休薬 '+md(x.start)+'〜'+md(x.end)+'、再開予定 '+md(x.resume)+'<br><span class=m>'+x.basis+'</span>').join('<br>')+'</details>';
+ return h}
+function rec(k){const d=$('#sd').value,e=ent(d);
+ if(k=='t'){e.t='taken';e.at=$('#tm').value}if(k=='m'){e.t='missed';delete e.at}if(k=='u'){delete e.t;delete e.at}
+ if(k=='b1')e.b='yes';if(k=='b0')e.b='no';if(k=='bx')delete e.b;
+ if(!e.t&&!e.b)delete S.days[d];
+ if(k=='p')upd(S.pauses,d,!S.pauses.includes(d));if(k=='q')upd(S.periods,d,!S.periods.includes(d));save();render()}
+function vR(){const d=sel||today(),e=S.days[d]||{},p=S.pauses.includes(d),q=S.periods.includes(d);
+ return '<div class=c><input type=date id=sd value='+d+' onchange="sel=this.value;render()" style="width:100%"><p>'+md(d)+'の記録：服用＝'+(e.t==='taken'?'服用済み '+(e.at||''):e.t==='missed'?'飲み忘れ':'未記録')+'／出血＝'+(e.b==='yes'?'あり':e.b==='no'?'なしを確認済み':'未入力')+(p?'／休薬開始日':'')+(q?'／服用開始・再開日':'')+'</p>'
+ +'<div class=row><input type=time id=tm value='+(e.at||hm())+'><button class=p onclick="rec(\'t\')">飲んだ</button></div><div class=row><button onclick="rec(\'m\')">飲み忘れ</button><button onclick="rec(\'u\')">未記録に戻す</button></div>'
+ +'<div class=row><button onclick="rec(\'b1\')">出血あり</button><button onclick="rec(\'b0\')">出血なし</button><button onclick="rec(\'bx\')">入力なし</button></div>'
+ +'<div class=row><button onclick="rec(\'p\')">'+(p?'休薬開始の記録を取消':'この日に休薬した（休薬1日目）')+'</button></div><div class=row><button onclick="rec(\'q\')">'+(q?'開始・再開の記録を取消':'この日に服用を開始・再開した（1日目）')+'</button></div>'
+ +'<p class=m>同じ日の服用記録は1件だけです。過去の記録を直しても、記録済みの休薬開始日・再開日は自動では変わりません。</p></div>'}
+function mv(n){const a=vm.split('-').map(Number);vm=new Date(Date.UTC(a[0],a[1]-1+n,1)).toISOString().slice(0,7);render()}
+function vC(s){const t=today();vm=vm||t.slice(0,7);const a=vm.split('-').map(Number),n=new Date(Date.UTC(a[0],a[1],0)).getUTCDate(),w=new Date(vm+'-01').getUTCDay(),pl=s.pl,pz=S.pauses.flatMap(p=>[0,1,2,3].map(i=>Y.add(p,i)));
+ let h='<div class=c><div class=row><button onclick=mv(-1)>＜</button><b style="text-align:center;flex:2">'+a[0]+'年'+a[1]+'月</b><button onclick=mv(1)>＞</button></div><table><tr>'+[...'日月火水木金土'].map(x=>'<td>'+x+'</td>').join('')+'</tr><tr>'+'<td></td>'.repeat(w);
+ for(let d=1;d<=n;d++){const k=vm+'-'+String(d).padStart(2,'0'),e=S.days[k]||{},x=[];
+  if(e.t==='taken')x.push('済');if(e.t==='missed')x.push('忘');if(e.b==='yes')x.push('血');if(pz.includes(k))x.push('休');if(S.periods.includes(k))x.push('始');
+  if(s.pp&&k>=s.pp&&k<t&&(!s.lp||k<s.lp)&&!e.t)x.push('未');
+  if(pl&&k>=pl.main.start&&k<=pl.main.end&&!pz.includes(k))x.push('<i>予休</i>');if(pl&&k===pl.main.resume)x.push('<i>予再</i>');
+  h+='<td onclick="sel=\''+k+'\';go(\'r\')" style="'+(k===t?'outline:2px solid var(--a)':'')+'">'+d+'<br>'+x.join(' ')+'</td>';if((w+d)%7===0)h+='</tr><tr>'}
+ return h+'</tr></table><p class=m>済=服用済み　忘=飲み忘れ　未=未記録　血=出血　休=実際の休薬　始=開始・再開日　<i>予休・予再</i>=予定（実績ではありません）。日をタップすると記録できます。</p></div>'}
+function reg(k){const d=$('#d1').value;if(!d)return;upd(k?S.periods:S.pauses,d,1);save();go('t')}
+function exp(){const b=new Blob([JSON.stringify(S)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='fukuyo-backup-'+today()+'.json';a.click()}
+function imp(f){if(!f)return;const r=new FileReader();r.onload=()=>{try{const o=JSON.parse(r.result);if(!Y.valid(o))throw 0;ask('今の記録を、このファイルの内容で置き換えます。よろしいですか？（今の記録は自動で退避します）',()=>{try{localStorage.setItem('yf_pre_restore',JSON.stringify(S))}catch(_){}S=o;save();go('t')})}catch(e){showErr('このファイルは読み込めません')}};r.readAsText(f)}
+function wipe(){ask('全ての記録を削除します。元に戻せません。先にバックアップの書き出しをおすすめします。',()=>{try{localStorage.removeItem(K)}catch(_){}S=E();go('t')})}
+function vS(){return '<div class=c><b>開始日の登録</b><p class=m>登録しただけで、過去の日が服用済みになることはありません。</p><input type=date id=d1 style="width:100%"><div class=row><button onclick=reg(1)>この日から服用中（服用1日目）</button><button onclick=reg(0)>この日から休薬中（休薬1日目）</button></div></div>'
+ +'<div class=c><b>確認が必要な事項（未確定）</b><ul class=m><li>24日目以前から続く出血が25日目をまたぐ場合の扱い</li><li>飲み忘れ後の120日の数え方と休薬判定</li><li>予定外の休薬・再開の扱い</li></ul>医師・薬剤師に確認した内容のメモ<textarea id=nt rows=4 style="width:100%" onchange="S.notes=this.value;save()"></textarea></div>'
+ +'<div class=c><b>データ</b><p class=m>記録はこのiPhoneの中だけに保存し、外部へ送信しません。Safariの閲覧データ消去、端末の初期化、アプリの削除で消えます。定期的に書き出してください。</p><div class=row><button onclick=exp()>バックアップを書き出す</button></div><p class=m>復元するファイルを選ぶ：</p><input type=file id=fi accept=".json,application/json" onchange="imp(this.files[0])"><div class=row><button class=r onclick=wipe()>全データを削除</button></div></div>'}
+function render(){try{render0()}catch(e){showErr('表示エラー：'+e.message);const v=$('#v');if(v)v.innerHTML='<div class="c r">画面を表示できませんでした。上のメッセージを確認してください。記録は削除されていません。</div>'}}
+function render0(){const s=Y.status(S,today());if(s.pl&&(!S.plan||S.plan.ps!==s.pl.ps)){S.plan={ps:s.pl.ps,start:s.pl.main.start};save()}
+ $('#v').innerHTML=({t:vT,r:vR,c:vC,s:vS})[tab](s)+'<p class=m>個人の記録・予定確認用です。医師・薬剤師の指示に代わるものではありません。</p>';const n=$('#nt');if(n)n.value=S.notes||''}
+if(typeof Y==='undefined')showErr('計算部分を読み込めませんでした。');else{load();render()}document.addEventListener('visibilitychange',()=>{if(!document.hidden)render()});
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script></body></html>
